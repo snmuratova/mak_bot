@@ -2,330 +2,49 @@ import os
 import asyncio
 import random
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone, date
 
 from aiohttp import web
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    Message, CallbackQuery, LabeledPrice,
-    PreCheckoutQuery
-)
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.client.default import DefaultBotProperties
+
 
 # =========================
-# CONFIG (Railway Variables)
+# CONFIG
 # =========================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is not set")
+if not BOT_TOKEN or " " in BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN is not set correctly (empty or contains spaces)")
 
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or "0")  # твой TG ID
-PORT = int(os.getenv("PORT", "8080"))
+# Example: ADMIN_IDS="123,456"
+ADMIN_IDS = set()
+_raw_admins = os.getenv("ADMIN_IDS", "").strip()
+if _raw_admins:
+    for part in _raw_admins.split(","):
+        part = part.strip()
+        if part.isdigit():
+            ADMIN_IDS.add(int(part))
 
-# timezone offset (minutes). Moscow = 180
-TZ_OFFSET_MIN = int(os.getenv("TZ_OFFSET_MIN", "180"))
-TZ = timezone(timedelta(minutes=TZ_OFFSET_MIN))
+# timezone for “soft reminders”
+# Default: GMT+3 (as you have)
+TZ_OFFSET_HOURS = int(os.getenv("TZ_OFFSET_HOURS", "3"))
+TZ = timezone(timedelta(hours=TZ_OFFSET_HOURS))
 
-# Card of Day schedule
-CARD_OF_DAY_HOUR = int(os.getenv("CARD_OF_DAY_HOUR", "9"))  # 09:00 local TZ
+# Reminder time (local TZ)
+REMINDER_HOUR = int(os.getenv("REMINDER_HOUR", "10"))   # 10:00
+REMINDER_MIN  = int(os.getenv("REMINDER_MIN", "0"))
 
-# Reminders
-REMINDER_AFTER_HOURS = int(os.getenv("REMINDER_AFTER_HOURS", "48"))  # inactivity threshold
-REMINDER_CHECK_EVERY_MIN = int(os.getenv("REMINDER_CHECK_EVERY_MIN", "60"))  # scheduler tick
-REMINDERS_ENABLED_DEFAULT = os.getenv("REMINDERS_ENABLED_DEFAULT", "1") == "1"
-
-# Subscription (Telegram Payments). If PROVIDER_TOKEN empty -> subscription works as "info only"
-PROVIDER_TOKEN = (os.getenv("PROVIDER_TOKEN", "") or "").strip()
-SUB_PRICE_RUB = int(os.getenv("SUB_PRICE_RUB", "199"))  # 199 RUB by default
-SUB_DAYS = int(os.getenv("SUB_DAYS", "30"))  # subscription duration in days
-
-# Database
 DB_PATH = os.getenv("DB_PATH", "bot.db")
-
-
-# =========================
-# DB
-# =========================
-def db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        first_seen TEXT NOT NULL,
-        last_active TEXT NOT NULL,
-        visits INTEGER NOT NULL DEFAULT 1,
-        reminders_enabled INTEGER NOT NULL DEFAULT 1,
-        sub_until TEXT,
-        last_daily_sent TEXT,
-        last_reminder_sent TEXT
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        ts TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        payload TEXT,
-        FOREIGN KEY(user_id) REFERENCES users(user_id)
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS favorites (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        card_id TEXT NOT NULL,
-        card_title TEXT NOT NULL,
-        added_at TEXT NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(user_id)
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS weekly_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        log_date TEXT NOT NULL,
-        card_id TEXT,
-        card_title TEXT,
-        mood INTEGER,   -- optional 0..10
-        note TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(user_id)
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def now_tz() -> datetime:
-    return datetime.now(TZ)
-
-
-def iso(dt: datetime) -> str:
-    return dt.isoformat(timespec="seconds")
-
-
-def get_user(user_id: int):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row
-
-
-def upsert_user_on_start(user_id: int):
-    conn = db()
-    cur = conn.cursor()
-    n = now_tz()
-    row = get_user(user_id)
-    if row is None:
-        cur.execute("""
-            INSERT INTO users (user_id, first_seen, last_active, visits, reminders_enabled)
-            VALUES (?, ?, ?, 1, ?)
-        """, (user_id, iso(n), iso(n), 1 if REMINDERS_ENABLED_DEFAULT else 0))
-        cur.execute("INSERT INTO events (user_id, ts, event_type) VALUES (?, ?, ?)",
-                    (user_id, iso(n), "start_new"))
-    else:
-        cur.execute("""
-            UPDATE users
-            SET last_active=?, visits=visits+1
-            WHERE user_id=?
-        """, (iso(n), user_id))
-        cur.execute("INSERT INTO events (user_id, ts, event_type) VALUES (?, ?, ?)",
-                    (user_id, iso(n), "start_return"))
-    conn.commit()
-    conn.close()
-
-
-def touch_active(user_id: int, event_type: str, payload: str | None = None):
-    conn = db()
-    cur = conn.cursor()
-    n = now_tz()
-    cur.execute("UPDATE users SET last_active=? WHERE user_id=?", (iso(n), user_id))
-    cur.execute("INSERT INTO events (user_id, ts, event_type, payload) VALUES (?, ?, ?, ?)",
-                (user_id, iso(n), event_type, payload))
-    conn.commit()
-    conn.close()
-
-
-def is_subscribed(user_id: int) -> bool:
-    row = get_user(user_id)
-    if not row:
-        return False
-    sub_until = row["sub_until"]
-    if not sub_until:
-        return False
-    try:
-        dt = datetime.fromisoformat(sub_until)
-        return dt >= now_tz()
-    except Exception:
-        return False
-
-
-def set_subscription(user_id: int, days: int):
-    conn = db()
-    cur = conn.cursor()
-    n = now_tz()
-    row = get_user(user_id)
-    base = n
-    if row and row["sub_until"]:
-        try:
-            current = datetime.fromisoformat(row["sub_until"])
-            if current > n:
-                base = current
-        except Exception:
-            pass
-    new_until = base + timedelta(days=days)
-    cur.execute("UPDATE users SET sub_until=? WHERE user_id=?", (iso(new_until), user_id))
-    cur.execute("INSERT INTO events (user_id, ts, event_type, payload) VALUES (?, ?, ?, ?)",
-                (user_id, iso(n), "subscription_set", f"{days}"))
-    conn.commit()
-    conn.close()
-
-
-def set_reminders(user_id: int, enabled: bool):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET reminders_enabled=? WHERE user_id=?",
-                (1 if enabled else 0, user_id))
-    conn.commit()
-    conn.close()
-
-
-def add_favorite(user_id: int, card_id: str, card_title: str):
-    conn = db()
-    cur = conn.cursor()
-    n = now_tz()
-    cur.execute("""
-        INSERT INTO favorites (user_id, card_id, card_title, added_at)
-        VALUES (?, ?, ?, ?)
-    """, (user_id, card_id, card_title, iso(n)))
-    cur.execute("INSERT INTO events (user_id, ts, event_type, payload) VALUES (?, ?, ?, ?)",
-                (user_id, iso(n), "favorite_add", card_id))
-    conn.commit()
-    conn.close()
-
-
-def get_favorites_last_7_days(user_id: int):
-    conn = db()
-    cur = conn.cursor()
-    cutoff = now_tz() - timedelta(days=7)
-    cur.execute("""
-        SELECT card_title, added_at
-        FROM favorites
-        WHERE user_id=? AND added_at>=?
-        ORDER BY added_at DESC
-    """, (user_id, iso(cutoff)))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-
-def cleanup_old_favorites():
-    conn = db()
-    cur = conn.cursor()
-    cutoff = now_tz() - timedelta(days=7)
-    cur.execute("DELETE FROM favorites WHERE added_at < ?", (iso(cutoff),))
-    conn.commit()
-    conn.close()
-
-
-def log_weekly(user_id: int, card_id: str | None, card_title: str | None, mood: int | None, note: str | None):
-    conn = db()
-    cur = conn.cursor()
-    n = now_tz()
-    cur.execute("""
-        INSERT INTO weekly_log (user_id, log_date, card_id, card_title, mood, note, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (user_id, date.today().isoformat(), card_id, card_title, mood, note, iso(n)))
-    conn.commit()
-    conn.close()
-
-
-def get_week_summary(user_id: int):
-    conn = db()
-    cur = conn.cursor()
-    cutoff = (date.today() - timedelta(days=6)).isoformat()
-    cur.execute("""
-        SELECT log_date, card_title, mood, note
-        FROM weekly_log
-        WHERE user_id=? AND log_date>=?
-        ORDER BY log_date ASC, created_at ASC
-    """, (user_id, cutoff))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-
-def admin_stats():
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) as c FROM users")
-    total_users = cur.fetchone()["c"]
-
-    cur.execute("SELECT COUNT(*) as c FROM users WHERE visits>1")
-    returned = cur.fetchone()["c"]
-
-    cur.execute("SELECT COUNT(*) as c FROM events WHERE event_type='card_shown'")
-    cards_shown = cur.fetchone()["c"]
-
-    cur.execute("SELECT COUNT(*) as c FROM events WHERE event_type='favorite_add'")
-    fav_added = cur.fetchone()["c"]
-
-    cur.execute("SELECT COUNT(*) as c FROM events WHERE event_type='daily_sent'")
-    daily_sent = cur.fetchone()["c"]
-
-    cur.execute("SELECT COUNT(*) as c FROM events WHERE event_type='reminder_sent'")
-    reminders_sent = cur.fetchone()["c"]
-
-    conn.close()
-    return total_users, returned, cards_shown, fav_added, daily_sent, reminders_sent
-
-
-def iter_users():
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM users")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-
-def set_last_daily_sent(user_id: int, day: date):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET last_daily_sent=? WHERE user_id=?", (day.isoformat(), user_id))
-    conn.commit()
-    conn.close()
-
-
-def set_last_reminder_sent(user_id: int, dt: datetime):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET last_reminder_sent=? WHERE user_id=?", (iso(dt), user_id))
-    conn.commit()
-    conn.close()
 
 
 # =========================
 # CARDS (10)
 # =========================
-
 CARDS = [
     {
         "id": "quiet_forest",
@@ -360,7 +79,7 @@ CARDS = [
     {
         "id": "soft_fog",
         "title": "Лёгкий туман",
-        "text": "Когда всё размыто — это не ошибка и не провал. Это пространство, где появляется новый ориентир.",
+        "text": "Когда всё размыто — это не ошибка и не провал. Это расфокус: пространство, где появляется новый ориентир.",
         "question": "Какая одна вещь сегодня может быть твоим ориентиром?",
     },
     {
@@ -386,432 +105,543 @@ CARDS = [
         "title": "Письмо себе",
         "text": "То, как ты говоришь с собой, — это твоя внутренняя атмосфера. Её можно менять.",
         "question": "Какая одна фраза поддержки тебе нужна сегодня?",
-    }
+    },
 ]
-
 CARD_BY_ID = {c["id"]: c for c in CARDS}
 
 
 # =========================
-# UI (simple text-buttons)
+# DB
 # =========================
-MAIN_MENU = (
-    "Выбери действие 👇\n\n"
-    "🌿 Выбрать карту\n"
-    "⭐ В избранное (к последней карте)\n"
-    "📌 Мои избранные\n"
-    "🧠 Состояние недели\n"
-    "🔔 Напоминания\n"
-    "💳 Подписка\n"
-)
+def db_connect():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-def main_keyboard_text() -> str:
-    # ReplyKeyboard “buttons” via text (works everywhere, no extra deps)
+
+def db_init():
+    conn = db_connect()
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        first_seen INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL,
+        visits INTEGER NOT NULL DEFAULT 0,
+        returns INTEGER NOT NULL DEFAULT 0,
+        subscribed INTEGER NOT NULL DEFAULT 0,
+        last_daily_sent TEXT,
+        last_weekly_state_week TEXT,
+        last_card_id TEXT
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS favorites (
+        user_id INTEGER NOT NULL,
+        card_id TEXT NOT NULL,
+        added_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, card_id, added_at)
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS weekly_state (
+        user_id INTEGER NOT NULL,
+        week_key TEXT NOT NULL,
+        state_code TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, week_key)
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def now_ts() -> int:
+    return int(time.time())
+
+
+def today_key_local() -> str:
+    return datetime.now(TZ).date().isoformat()
+
+
+def week_key_local(d: date | None = None) -> str:
+    d = d or datetime.now(TZ).date()
+    monday = d - timedelta(days=d.weekday())
+    return monday.isoformat()  # week key = Monday date
+
+
+def ensure_user(user_id: int):
+    conn = db_connect()
+    cur = conn.cursor()
+    ts = now_ts()
+
+    cur.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+
+    if row is None:
+        cur.execute("""
+            INSERT INTO users (user_id, first_seen, last_seen, visits, returns, subscribed)
+            VALUES (?, ?, ?, 1, 0, 0)
+        """, (user_id, ts, ts))
+    else:
+        # visit/return logic: if last_seen more than 24h ago => count return
+        last_seen = int(row["last_seen"])
+        is_return = (ts - last_seen) >= 24 * 3600
+        if is_return:
+            cur.execute("""
+                UPDATE users
+                SET last_seen=?, visits=visits+1, returns=returns+1
+                WHERE user_id=?
+            """, (ts, user_id))
+        else:
+            cur.execute("""
+                UPDATE users
+                SET last_seen=?, visits=visits+1
+                WHERE user_id=?
+            """, (ts, user_id))
+
+    conn.commit()
+    conn.close()
+
+
+def set_last_card(user_id: int, card_id: str):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET last_card_id=? WHERE user_id=?", (card_id, user_id))
+    conn.commit()
+    conn.close()
+
+
+def get_last_card(user_id: int) -> str | None:
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT last_card_id FROM users WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return row["last_card_id"]
+
+
+def add_favorite(user_id: int, card_id: str):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO favorites (user_id, card_id, added_at)
+        VALUES (?, ?, ?)
+    """, (user_id, card_id, now_ts()))
+    conn.commit()
+    conn.close()
+
+
+def favorites_last_7_days(user_id: int):
+    since = now_ts() - 7 * 24 * 3600
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT card_id, added_at
+        FROM favorites
+        WHERE user_id=? AND added_at>=?
+        ORDER BY added_at DESC
+    """, (user_id, since))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def toggle_subscribe(user_id: int) -> bool:
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT subscribed FROM users WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return False
+    new_val = 0 if int(row["subscribed"]) == 1 else 1
+    cur.execute("UPDATE users SET subscribed=? WHERE user_id=?", (new_val, user_id))
+    conn.commit()
+    conn.close()
+    return new_val == 1
+
+
+def is_subscribed(user_id: int) -> bool:
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT subscribed FROM users WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return bool(row and int(row["subscribed"]) == 1)
+
+
+def mark_daily_sent(user_id: int, day_key: str):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET last_daily_sent=? WHERE user_id=?", (day_key, user_id))
+    conn.commit()
+    conn.close()
+
+
+def was_daily_sent(user_id: int, day_key: str) -> bool:
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT last_daily_sent FROM users WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return bool(row and row["last_daily_sent"] == day_key)
+
+
+def save_weekly_state(user_id: int, week_key: str, state_code: str):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO weekly_state (user_id, week_key, state_code, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, week_key) DO UPDATE SET
+            state_code=excluded.state_code,
+            created_at=excluded.created_at
+    """, (user_id, week_key, state_code, now_ts()))
+    cur.execute("UPDATE users SET last_weekly_state_week=? WHERE user_id=?", (week_key, user_id))
+    conn.commit()
+    conn.close()
+
+
+def get_weekly_state(user_id: int, week_key_: str):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT state_code, created_at
+        FROM weekly_state
+        WHERE user_id=? AND week_key=?
+    """, (user_id, week_key_))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def admin_stats_text():
+    conn = db_connect()
+    cur = conn.cursor()
+
+    # total users
+    cur.execute("SELECT COUNT(*) as n FROM users")
+    total_users = int(cur.fetchone()["n"])
+
+    # last 7 days new users
+    since = now_ts() - 7 * 24 * 3600
+    cur.execute("SELECT COUNT(*) as n FROM users WHERE first_seen>=?", (since,))
+    new_7 = int(cur.fetchone()["n"])
+
+    # visits / returns sums
+    cur.execute("SELECT COALESCE(SUM(visits),0) as v, COALESCE(SUM(returns),0) as r FROM users")
+    sums = cur.fetchone()
+    total_visits = int(sums["v"])
+    total_returns = int(sums["r"])
+
+    # subscriptions
+    cur.execute("SELECT COUNT(*) as n FROM users WHERE subscribed=1")
+    subs = int(cur.fetchone()["n"])
+
+    conn.close()
+
     return (
-        "🌿 Выбрать карту\n"
-        "⭐ В избранное\n"
-        "📌 Мои избранные\n"
-        "🧠 Состояние недели\n"
-        "🔔 Напоминания\n"
-        "💳 Подписка\n"
-        "🏠 Меню"
+        "📊 *Статистика*\n\n"
+        f"👤 Пользователей всего: *{total_users}*\n"
+        f"🆕 Новых за 7 дней: *{new_7}*\n"
+        f"👣 Посещений (суммарно): *{total_visits}*\n"
+        f"🔁 Возвратов (24ч+): *{total_returns}*\n"
+        f"🔔 Подписка включена: *{subs}*\n"
     )
 
 
-def pick_card() -> dict:
-    return random.choice(CARDS)
+# =========================
+# UI
+# =========================
+def main_menu_kb():
+    kb = ReplyKeyboardBuilder()
+    kb.button(text="🌿 Карта дня")
+    kb.button(text="🌿 Выбрать карту")
+    kb.button(text="⭐ В избранное")
+    kb.button(text="📌 Мои избранные")
+    kb.button(text="📅 Состояние недели")
+    kb.button(text="🔔 Подписка")
+    kb.adjust(2, 2, 2)
+    return kb.as_markup(resize_keyboard=True, one_time_keyboard=False, input_field_placeholder="Выбери действие…")
 
 
-# last card cache in memory (per process) for “add to favorites last shown”
-LAST_CARD = {}  # user_id -> card_id
+def weekly_state_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🌿 Ясность", callback_data="weekstate:clear")
+    kb.button(text="🌫 Туманность", callback_data="weekstate:fog")
+    kb.button(text="🌊 Перегруз", callback_data="weekstate:overload")
+    kb.button(text="🫧 Хрупкость", callback_data="weekstate:fragile")
+    kb.button(text="🔥 Напряжение", callback_data="weekstate:tension")
+    kb.button(text="🌤 Тепло", callback_data="weekstate:warm")
+    kb.adjust(2, 2, 2)
+    return kb.as_markup()
+
+
+WEEKSTATE_TEXT = {
+    "clear": (
+        "🌿 *Ясность*\n"
+        "Сегодня в тебе есть пространство. Не ускоряйся — просто иди ровно.\n\n"
+        "Вопрос: *что ты хочешь сохранить в этом состоянии?*"
+    ),
+    "fog": (
+        "🌫 *Туманность*\n"
+        "Когда всё размыто — это не провал. Это сигнал: тебе нужен ориентир, а не скорость.\n\n"
+        "Вопрос: *что будет твоим самым простым ориентиром на эту неделю?*"
+    ),
+    "overload": (
+        "🌊 *Перегруз*\n"
+        "Твоё «слишком много» — не слабость. Это честная информация.\n\n"
+        "Вопрос: *что можно уменьшить на 10% уже сегодня?*"
+    ),
+    "fragile": (
+        "🫧 *Хрупкость*\n"
+        "Тут важно не «собраться», а бережно удержать себя.\n\n"
+        "Вопрос: *какая поддержка тебе нужна без объяснений?*"
+    ),
+    "tension": (
+        "🔥 *Напряжение*\n"
+        "Тело держит то, что ум пытается контролировать.\n\n"
+        "Вопрос: *где ты можешь ослабить хватку на один миллиметр?*"
+    ),
+    "warm": (
+        "🌤 *Тепло*\n"
+        "В тебе есть ресурс. Пусть он не уходит в доказательства.\n\n"
+        "Вопрос: *какую маленькую радость ты выбираешь на этой неделе?*"
+    ),
+}
+
+
+def format_card(card: dict) -> str:
+    return (
+        f"🌿 *{card['title']}*\n\n"
+        f"{card['text']}\n\n"
+        f"🔎 *Вопрос:* {card['question']}"
+    )
 
 
 # =========================
-# HTTP server (Railway likes open port for services)
+# Card logic
+# =========================
+def card_of_day(local_day: date | None = None) -> dict:
+    local_day = local_day or datetime.now(TZ).date()
+    # deterministic index from date
+    seed = int(local_day.strftime("%Y%m%d"))
+    idx = seed % len(CARDS)
+    return CARDS[idx]
+
+
+def random_card() -> dict:
+    return random.choice(CARDS)
+
+
+# =========================
+# HTTP server (health)
 # =========================
 async def handle_root(request):
     return web.Response(text="OK")
 
+async def handle_health(request):
+    return web.Response(text="OK")
 
 async def start_web_server():
     app = web.Application()
     app.router.add_get("/", handle_root)
+    app.router.add_get("/health", handle_health)
+
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, host="0.0.0.0", port=PORT)
+
+    port = int(os.getenv("PORT", "8080"))
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)
     await site.start()
 
 
 # =========================
 # BOT
 # =========================
-bot = Bot(token=BOT_TOKEN, parse_mode="Markdown")
 dp = Dispatcher()
-
-
-async def send_menu(message: Message):
-    await message.answer("🏠 Меню\n\n" + MAIN_MENU)
-    await message.answer(main_keyboard_text())
 
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    upsert_user_on_start(message.from_user.id)
-    await message.answer("Бот запущен ✅")
-    await send_menu(message)
-
-
-@dp.message(Command("admin"))
-async def cmd_admin(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    total_users, returned, cards_shown, fav_added, daily_sent, reminders_sent = admin_stats()
-    txt = (
-        "📊 **Админ-статистика**\n\n"
-        f"👥 Всего пользователей: **{total_users}**\n"
-        f"🔁 Вернулись повторно: **{returned}**\n"
-        f"🃏 Выдано карт: **{cards_shown}**\n"
-        f"⭐ Добавлено в избранное: **{fav_added}**\n"
-        f"☀️ Отправлено «Карта дня»: **{daily_sent}**\n"
-        f"🔔 Отправлено напоминаний: **{reminders_sent}**\n"
+    ensure_user(message.from_user.id)
+    await message.answer(
+        "Бот запущен ✅\n\n"
+        "Я здесь, чтобы мягко вернуть тебя к себе: через карту, вопрос и маленькое действие.\n"
+        "Выбирай в меню снизу.",
+        reply_markup=main_menu_kb()
     )
-    await message.answer(txt)
 
 
-@dp.message(F.text == "🏠 Меню")
-async def menu_btn(message: Message):
-    touch_active(message.from_user.id, "menu")
-    await send_menu(message)
+@dp.message(Command("admin_stats"))
+async def cmd_admin_stats(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("Эта команда доступна только администратору.")
+        return
+    ensure_user(message.from_user.id)
+    await message.answer(admin_stats_text())
+
+
+@dp.message(F.text == "🌿 Карта дня")
+async def on_card_day(message: Message):
+    ensure_user(message.from_user.id)
+    card = card_of_day()
+    set_last_card(message.from_user.id, card["id"])
+    await message.answer(format_card(card), reply_markup=main_menu_kb())
 
 
 @dp.message(F.text == "🌿 Выбрать карту")
-async def choose_card(message: Message):
-    user_id = message.from_user.id
-    touch_active(user_id, "choose_card")
-
-    card = pick_card()
-    LAST_CARD[user_id] = card["id"]
-    touch_active(user_id, "card_shown", card["id"])
-    log_weekly(user_id, card["id"], card["title"], mood=None, note=None)
-
-    await message.answer(card["text"])
-    await message.answer("Если хочешь — нажми ⭐ *В избранное* или открой *Состояние недели*.")
+async def on_pick_card(message: Message):
+    ensure_user(message.from_user.id)
+    card = random_card()
+    set_last_card(message.from_user.id, card["id"])
+    await message.answer(format_card(card), reply_markup=main_menu_kb())
 
 
 @dp.message(F.text == "⭐ В избранное")
-async def add_to_fav(message: Message):
-    user_id = message.from_user.id
-    touch_active(user_id, "fav_click")
-
-    card_id = LAST_CARD.get(user_id)
-    if not card_id:
-        await message.answer("Сначала выбери карту 🌿")
+async def on_add_fav(message: Message):
+    ensure_user(message.from_user.id)
+    last = get_last_card(message.from_user.id)
+    if not last:
+        await message.answer("Сначала выбери карту: нажми «🌿 Выбрать карту» или «🌿 Карта дня».")
         return
 
-    card = CARD_BY_ID[card_id]
-    add_favorite(user_id, card_id, card["title"])
-    await message.answer(f"Добавила в избранное: «{card['title']}» ⭐")
+    try:
+        add_favorite(message.from_user.id, last)
+    except Exception:
+        # If user taps many times quickly, ignore duplicates with same timestamp collision chance
+        pass
+
+    title = CARD_BY_ID.get(last, {}).get("title", last)
+    await message.answer(f"Добавила в избранное: «{title}»", reply_markup=main_menu_kb())
 
 
 @dp.message(F.text == "📌 Мои избранные")
-async def my_favs(message: Message):
-    user_id = message.from_user.id
-    touch_active(user_id, "fav_list")
-
-    cleanup_old_favorites()
-    rows = get_favorites_last_7_days(user_id)
+async def on_list_fav(message: Message):
+    ensure_user(message.from_user.id)
+    rows = favorites_last_7_days(message.from_user.id)
     if not rows:
-        await message.answer("📌 Избранное за 7 дней пусто.\nВыбери карту 🌿 и добавь ⭐")
+        await message.answer("📌 Избранных за 7 дней пока нет.\n\nВыбери карту и нажми «⭐ В избранное».")
         return
 
-    lines = ["📌 **Избранные за 7 дней:**\n"]
+    lines = ["📌 *Избранные за 7 дней:*", ""]
     for r in rows[:20]:
-        dt = datetime.fromisoformat(r["added_at"])
-        lines.append(f"• {r['card_title']}  _(добавлено {dt.strftime('%d.%m %H:%M')})_")
-    await message.answer("\n".join(lines))
+        card_id = r["card_id"]
+        title = CARD_BY_ID.get(card_id, {}).get("title", card_id)
+        dt = datetime.fromtimestamp(int(r["added_at"]), TZ).strftime("%d.%m %H:%M")
+        lines.append(f"• {title} _(добавлено {dt})_")
+
+    await message.answer("\n".join(lines), reply_markup=main_menu_kb())
 
 
-# -------------------------
-# WEEK STATE
-# -------------------------
-@dp.message(F.text == "🧠 Состояние недели")
-async def week_state(message: Message):
-    user_id = message.from_user.id
-    touch_active(user_id, "week_state")
+@dp.message(F.text == "📅 Состояние недели")
+async def on_week_state(message: Message):
+    ensure_user(message.from_user.id)
 
-    rows = get_week_summary(user_id)
-    if not rows:
+    wk = week_key_local()
+    existing = get_weekly_state(message.from_user.id, wk)
+    if existing:
+        code = existing["state_code"]
+        preview = WEEKSTATE_TEXT.get(code, "")
         await message.answer(
-            "🧠 **Состояние недели**\n\n"
-            "Пока пусто. Давай начнём: выбери карту 🌿 — она появится в недельной ленте."
+            "📅 На этой неделе у тебя уже отмечено состояние.\n\n"
+            "Хочешь обновить?\n\n"
+            f"{preview}",
+            reply_markup=weekly_state_kb()
         )
         return
 
-    lines = ["🧠 **Состояние недели (последние 7 дней):**\n"]
-    current_day = None
-    for r in rows:
-        day = r["log_date"]
-        if day != current_day:
-            current_day = day
-            d = datetime.fromisoformat(day)
-            lines.append(f"\n**{d.strftime('%d.%m')}**")
-        title = r["card_title"] or "—"
-        mood = r["mood"]
-        note = r["note"]
-        tail = []
-        if mood is not None:
-            tail.append(f"настроение: {mood}/10")
-        if note:
-            tail.append(f"заметка: {note}")
-        tail_txt = f"  _({', '.join(tail)})_" if tail else ""
-        lines.append(f"• {title}{tail_txt}")
-
-    lines.append("\nХочешь добавить настроение? Напиши: **мood 7** (от 0 до 10).")
-    lines.append("Или заметку: **note текст**")
-    await message.answer("\n".join(lines))
-
-
-@dp.message(F.text.regexp(r"^(mood|муд|мудд|настроение)\s+(\d{1,2})$", flags=0))
-async def set_mood(message: Message):
-    user_id = message.from_user.id
-    parts = message.text.strip().split()
-    val = int(parts[-1])
-    if val < 0 or val > 10:
-        await message.answer("Поставь число от 0 до 10 🙂")
-        return
-    touch_active(user_id, "mood_set", str(val))
-    log_weekly(user_id, card_id=None, card_title=None, mood=val, note=None)
-    await message.answer(f"Принято ✅ Настроение: {val}/10")
-
-
-@dp.message(F.text.regexp(r"^(note|заметка)\s+(.+)$", flags=0))
-async def set_note(message: Message):
-    user_id = message.from_user.id
-    txt = message.text.strip()
-    note = txt.split(" ", 1)[1].strip()
-    if len(note) > 800:
-        note = note[:800]
-    touch_active(user_id, "note_set")
-    log_weekly(user_id, card_id=None, card_title=None, mood=None, note=note)
-    await message.answer("Заметка сохранена ✅")
-
-
-# -------------------------
-# REMINDERS toggle
-# -------------------------
-@dp.message(F.text == "🔔 Напоминания")
-async def reminders_menu(message: Message):
-    user_id = message.from_user.id
-    touch_active(user_id, "reminders_menu")
-
-    row = get_user(user_id)
-    enabled = bool(row["reminders_enabled"]) if row else REMINDERS_ENABLED_DEFAULT
-    state = "включены ✅" if enabled else "выключены ⛔️"
     await message.answer(
-        f"🔔 Напоминания сейчас: **{state}**\n\n"
-        "Напиши:\n"
-        "• **rem on** — включить\n"
-        "• **rem off** — выключить\n\n"
-        f"Мягкое напоминание приходит после ~{REMINDER_AFTER_HOURS} часов без активности."
+        "📅 *Состояние недели*\n\n"
+        "Выбери, что ближе всего сейчас. Это не диагноз — это мягкая отметка, чтобы не потерять себя.",
+        reply_markup=weekly_state_kb()
     )
 
 
-@dp.message(F.text.in_({"rem on", "rem off"}))
-async def reminders_toggle(message: Message):
-    user_id = message.from_user.id
-    enable = (message.text == "rem on")
-    set_reminders(user_id, enable)
-    touch_active(user_id, "reminders_toggle", "on" if enable else "off")
-    await message.answer("Готово ✅" if enable else "Ок, выключила ⛔️")
+@dp.callback_query(F.data.startswith("weekstate:"))
+async def on_week_state_pick(call: CallbackQuery):
+    ensure_user(call.from_user.id)
+    code = call.data.split(":", 1)[1].strip()
+    if code not in WEEKSTATE_TEXT:
+        await call.answer("Не поняла выбор 🙈", show_alert=False)
+        return
+
+    wk = week_key_local()
+    save_weekly_state(call.from_user.id, wk, code)
+    await call.message.answer(WEEKSTATE_TEXT[code], reply_markup=main_menu_kb())
+    await call.answer("Сохранено ✅", show_alert=False)
 
 
-# -------------------------
-# SUBSCRIPTION
-# -------------------------
-def sub_status_text(user_id: int) -> str:
-    row = get_user(user_id)
-    if not row or not row["sub_until"]:
-        return "Подписка: **нет**"
-    try:
-        dt = datetime.fromisoformat(row["sub_until"])
-        if dt < now_tz():
-            return "Подписка: **истекла**"
-        return f"Подписка активна до: **{dt.strftime('%d.%m.%Y %H:%M')}**"
-    except Exception:
-        return "Подписка: **неизвестно**"
-
-
-@dp.message(F.text == "💳 Подписка")
-async def subscription_menu(message: Message):
-    user_id = message.from_user.id
-    touch_active(user_id, "subscription_menu")
-
-    info = sub_status_text(user_id)
-    if PROVIDER_TOKEN:
+@dp.message(F.text == "🔔 Подписка")
+async def on_subscribe_toggle(message: Message):
+    ensure_user(message.from_user.id)
+    enabled = toggle_subscribe(message.from_user.id)
+    if enabled:
         await message.answer(
-            "💳 **Подписка**\n\n"
-            f"{info}\n\n"
-            f"Стоимость: **{SUB_PRICE_RUB} ₽ / {SUB_DAYS} дней**\n"
-            "Чтобы оформить — напиши: **pay**\n"
-            "Если оплата не нужна (тест) — админ может включить: **/sub30** (только себе)."
+            "🔔 Подписка включена.\n\n"
+            "Я буду присылать мягкое напоминание раз в день — без давления.\n"
+            "Если захочешь выключить, нажми «🔔 Подписка» ещё раз.",
+            reply_markup=main_menu_kb()
         )
     else:
         await message.answer(
-            "💳 **Подписка**\n\n"
-            f"{info}\n\n"
-            "Оплата пока не подключена (нет PROVIDER_TOKEN).\n"
-            "Но функционал подписки уже готов: как только добавим PROVIDER_TOKEN — заработает команда **pay**."
+            "🔕 Подписка выключена.\n\n"
+            "Я рядом, когда ты решишь вернуться.",
+            reply_markup=main_menu_kb()
         )
 
 
-@dp.message(Command("sub30"))
-async def admin_gift_sub(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    set_subscription(message.from_user.id, 30)
-    await message.answer("Ок ✅ Подписка активирована на 30 дней (только тебе).")
-
-
-@dp.message(F.text == "pay")
-async def pay_subscription(message: Message):
-    user_id = message.from_user.id
-    touch_active(user_id, "pay_click")
-
-    if not PROVIDER_TOKEN:
-        await message.answer("Оплата не подключена: добавь PROVIDER_TOKEN в Railway Variables.")
-        return
-
-    prices = [LabeledPrice(label=f"Подписка {SUB_DAYS} дней", amount=SUB_PRICE_RUB * 100)]
-    await bot.send_invoice(
-        chat_id=message.chat.id,
-        title="Подписка MAK Online",
-        description=f"Доступ к расширенным функциям на {SUB_DAYS} дней",
-        payload=f"sub:{user_id}:{SUB_DAYS}",
-        provider_token=PROVIDER_TOKEN,
-        currency="RUB",
-        prices=prices,
-    )
-
-
-@dp.pre_checkout_query()
-async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
-    # Telegram requires OK within 10 seconds
-    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-
-
-@dp.message(F.successful_payment)
-async def successful_payment(message: Message):
-    user_id = message.from_user.id
-    touch_active(user_id, "payment_success")
-
-    payload = message.successful_payment.invoice_payload or ""
-    # expecting "sub:user_id:days"
-    days = SUB_DAYS
-    try:
-        parts = payload.split(":")
-        if len(parts) == 3 and parts[0] == "sub":
-            days = int(parts[2])
-    except Exception:
-        pass
-
-    set_subscription(user_id, days)
-    await message.answer(f"Оплата прошла ✅ Подписка активирована на **{days} дней**.")
-
-
 # =========================
-# SCHEDULERS
+# Soft reminders scheduler
 # =========================
-async def scheduler_card_of_day():
+async def reminders_loop(bot: Bot):
     """
-    Sends daily card at CARD_OF_DAY_HOUR local TZ to all users.
+    Once a minute checks if it's time to send a daily gentle reminder.
+    Sends only to subscribed users, once per day.
     """
     while True:
         try:
-            today = now_tz().date()
-            now_local = now_tz()
+            now_local = datetime.now(TZ)
+            if now_local.hour == REMINDER_HOUR and now_local.minute == REMINDER_MIN:
+                day_key = now_local.date().isoformat()
 
-            # run close to every minute boundary
-            if now_local.hour == CARD_OF_DAY_HOUR and now_local.minute in (0, 1):
-                for u in iter_users():
-                    user_id = int(u["user_id"])
-                    last_sent = u["last_daily_sent"]
-                    if last_sent == today.isoformat():
+                conn = db_connect()
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM users WHERE subscribed=1")
+                users = [int(r["user_id"]) for r in cur.fetchall()]
+                conn.close()
+
+                for uid in users:
+                    if was_daily_sent(uid, day_key):
                         continue
 
-                    # Optional: require subscription for daily card (toggle here)
-                    # If you want daily card only for subscribers -> uncomment:
-                    # if not is_subscribed(user_id):
-                    #     continue
-
-                    card = pick_card()
-                    LAST_CARD[user_id] = card["id"]
-
+                    # gentle message + card of day suggestion
+                    cd = card_of_day(now_local.date())
+                    text = (
+                        "🔔 *Мягкое напоминание*\n\n"
+                        "Сделай одну маленькую паузу. Не чтобы «успеть», а чтобы вернуться к себе.\n\n"
+                        f"Сегодняшняя карта дня: *{cd['title']}*\n"
+                        "Нажми «🌿 Карта дня», если хочешь её открыть."
+                    )
                     try:
-                        await bot.send_message(
-                            user_id,
-                            "☀️ **Карта дня**\n\n" + card["text"]
-                        )
-                        touch_active(user_id, "daily_sent", card["id"])
-                        log_weekly(user_id, card["id"], card["title"], mood=None, note=None)
-                        set_last_daily_sent(user_id, today)
+                        await bot.send_message(uid, text, reply_markup=main_menu_kb())
+                        mark_daily_sent(uid, day_key)
                     except Exception:
-                        # user blocked bot or unreachable
+                        # user blocked bot or other send error — ignore
                         pass
 
-            await asyncio.sleep(45)
+            # sleep 60s
+            await asyncio.sleep(60)
+
         except Exception:
-            await asyncio.sleep(5)
-
-
-async def scheduler_reminders():
-    """
-    Sends a gentle reminder if inactive for REMINDER_AFTER_HOURS.
-    """
-    while True:
-        try:
-            cutoff = now_tz() - timedelta(hours=REMINDER_AFTER_HOURS)
-            now_local = now_tz()
-
-            for u in iter_users():
-                user_id = int(u["user_id"])
-                if int(u["reminders_enabled"]) != 1:
-                    continue
-
-                # check inactive
-                try:
-                    last_active = datetime.fromisoformat(u["last_active"])
-                except Exception:
-                    continue
-
-                if last_active > cutoff:
-                    continue
-
-                # avoid spamming: at most once per 24h
-                last_rem = u["last_reminder_sent"]
-                if last_rem:
-                    try:
-                        dt = datetime.fromisoformat(last_rem)
-                        if dt > (now_local - timedelta(hours=24)):
-                            continue
-                    except Exception:
-                        pass
-
-                # gentle reminder text
-                text = (
-                    "🌿 Я рядом.\n\n"
-                    "Если хочешь — можно взять маленькую паузу: выбери карту дня или открой состояние недели.\n\n"
-                    "Напиши: **🌿 Выбрать карту** или **🧠 Состояние недели**"
-                )
-
-                try:
-                    await bot.send_message(user_id, text)
-                    touch_active(user_id, "reminder_sent")
-                    set_last_reminder_sent(user_id, now_local)
-                except Exception:
-                    pass
-
-            await asyncio.sleep(REMINDER_CHECK_EVERY_MIN * 60)
-        except Exception:
+            # if something goes wrong, don't kill the loop
             await asyncio.sleep(10)
 
 
@@ -819,13 +649,20 @@ async def scheduler_reminders():
 # MAIN
 # =========================
 async def main():
-    init_db()
+    db_init()
+
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode="Markdown")
+    )
+
+    # Start HTTP server for health checks
     await start_web_server()
 
-    # start schedulers
-    asyncio.create_task(scheduler_card_of_day())
-    asyncio.create_task(scheduler_reminders())
+    # Start reminders loop
+    asyncio.create_task(reminders_loop(bot))
 
+    # Start polling
     await dp.start_polling(bot)
 
 
