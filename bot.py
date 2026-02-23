@@ -13,6 +13,10 @@ from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.client.default import DefaultBotProperties
 
+# =========================
+# ADMIN (видит статистику)
+# =========================
+ADMIN_ID = 862407613
 
 # =========================
 # CONFIG
