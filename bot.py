@@ -1,4 +1,4 @@
-ьimport os
+import os
 import asyncio
 import random
 import sqlite3
