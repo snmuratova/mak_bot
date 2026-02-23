@@ -1,4 +1,4 @@
-import os
+ьimport os
 import asyncio
 import random
 import sqlite3
@@ -26,7 +26,7 @@ if not BOT_TOKEN or " " in BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set correctly (empty or contains spaces)")
 
 # Example: ADMIN_IDS="123,456"
-ADMIN_IDS = set()
+ADMIN_IDS = 
 _raw_admins = os.getenv("ADMIN_IDS", "").strip()
 if _raw_admins:
     for part in _raw_admins.split(","):
