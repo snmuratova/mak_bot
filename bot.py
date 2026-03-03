@@ -438,16 +438,22 @@ def card_image_path(card_id: str) -> str:
 
 
 async def send_card(message: Message, card: dict):
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await asyncio.sleep(0.6)
+
     text = format_card(card)
     img_path = card_image_path(card["id"])
 
     if os.path.exists(img_path):
-        # лучше: сначала фото, потом текст (картинка будет крупнее)
-        await message.answer_photo(photo=FSInputFile(img_path))
-        await message.answer(text, reply_markup=main_menu_kb())
+        await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
+        await asyncio.sleep(0.4)
+        await message.answer_photo(
+            photo=FSInputFile(img_path),
+            caption=text,
+            reply_markup=main_menu_kb()
+        )
     else:
         await message.answer(text, reply_markup=main_menu_kb())
-
 
 # =========================
 # Card logic
