@@ -429,6 +429,25 @@ def format_card(card: dict) -> str:
         f"{card['text']}\n\n"
         f"🔎 *Вопрос:* {card['question']}"
     )
+    def card_image_path(card_id: str) -> str:
+    # Все картинки лежат в папке images и называются как id карты
+    # Пример: images/quiet_forest.jpg
+    return os.path.join("images", f"{card_id}.jpg")
+
+
+async def send_card(message: Message, card: dict):
+    text = format_card(card)
+    img_path = card_image_path(card["id"])
+
+    if os.path.exists(img_path):
+        await message.answer_photo(
+            photo=FSInputFile(img_path),
+            caption=text,
+            reply_markup=main_menu_kb()
+        )
+    else:
+        # если картинки нет — отправляем текст
+        await message.answer(text, reply_markup=main_menu_kb())
 
 
 # =========================
