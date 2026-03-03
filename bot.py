@@ -12,6 +12,7 @@ from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ChatAction
 
 # =========================
 # ADMIN (видит статистику)
