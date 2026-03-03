@@ -518,7 +518,7 @@ async def on_card_day(message: Message):
     ensure_user(message.from_user.id)
     card = card_of_day()
     set_last_card(message.from_user.id, card["id"])
-    await message.answer(format_card(card), reply_markup=main_menu_kb())
+    await send_card(message, card)
 
 
 @dp.message(F.text == "🌿 Выбрать карту")
@@ -526,8 +526,7 @@ async def on_pick_card(message: Message):
     ensure_user(message.from_user.id)
     card = random_card()
     set_last_card(message.from_user.id, card["id"])
-    await message.answer(format_card(card), reply_markup=main_menu_kb())
-
+    await send_card(message, card)
 
 @dp.message(F.text == "⭐ В избранное")
 async def on_add_fav(message: Message):
