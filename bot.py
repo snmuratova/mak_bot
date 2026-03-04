@@ -423,10 +423,28 @@ WEEKSTATE_TEXT = {
 }
 
 
-def format_card(card: dict) -> str:
+ карты
+    # пример: images/quiet_forest.jpg
+    return os.path.join("images", f"{card_id}.jpg")
+
+# =========================
+# CARD FORMAT
+# =========================
+
+IMPORTANT_BEFORE_QUESTION = "Просто отметь первое, что откликнулось."
+
+
+def format_card_title(card: dict) -> str:
+    return f"🌿 *{card['title']}*"
+
+
+def format_card_text(card: dict) -> str:
+    return f"{card['text']}"
+
+
+def format_card_question(card: dict) -> str:
     return (
-        f"🌿 *{card['title']}*\n\n"
-        f"{card['text']}\n\n"
+        f"🫧 {IMPORTANT_BEFORE_QUESTION}\n\n"
         f"🔎 *Вопрос:* {card['question']}"
     )
 
@@ -438,23 +456,42 @@ def card_image_path(card_id: str) -> str:
 
 
 async def send_card(message: Message, card: dict):
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await asyncio.sleep(0.6)
 
-    text = format_card(card)
+    # 1. НАЗВАНИЕ
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await asyncio.sleep(0.4)
+
+    await message.answer(format_card_title(card))
+
+    # 2. КАРТИНКА
     img_path = card_image_path(card["id"])
 
     if os.path.exists(img_path):
+
         await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
         await asyncio.sleep(0.4)
-        await message.answer_photo(
-            photo=FSInputFile(img_path),
-            caption=text,
-            reply_markup=main_menu_kb()
-        )
-    else:
-        await message.answer(text, reply_markup=main_menu_kb())
 
+        await message.answer_photo(
+            photo=FSInputFile(img_path)
+        )
+
+    else:
+        await message.answer("🖼 (Картинка пока недоступна)")
+
+    # 3. ТЕКСТ
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await asyncio.sleep(0.5)
+
+    await message.answer(format_card_text(card))
+
+    # 4. ВОПРОС
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await asyncio.sleep(0.5)
+
+    await message.answer(
+        format_card_question(card),
+        reply_markup=main_menu_kb()
+    )
 # =========================
 # Card logic
 # =========================
