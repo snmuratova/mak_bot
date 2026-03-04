@@ -427,6 +427,9 @@ WEEKSTATE_TEXT = {
 # CARD FORMAT
 # =========================
 
+from aiogram.enums import ChatAction
+from aiogram.types import FSInputFile
+
 IMPORTANT_BEFORE_QUESTION = "🫧 Просто отметь первое, что откликнулось."
 
 
@@ -441,71 +444,43 @@ def format_card_text(card: dict) -> str:
 def format_card_question(card: dict) -> str:
     return (
         f"{IMPORTANT_BEFORE_QUESTION}\n\n"
-        f"🔎 *Вопрос:* {card['question']}"
+        f"🔎 *Вопрос:*\n\n{card['question']}"
     )
 
 
 def card_image_path(card_id: str) -> str:
+    # картинки лежат в папке images и называются как id карты
+    # пример: images/quiet_forest.jpg
     return os.path.join("images", f"{card_id}.jpg")
 
 
 async def send_card(message: Message, card: dict):
-
+    # 0) имитация набора
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     await asyncio.sleep(0.4)
 
     img_path = card_image_path(card["id"])
-
     caption = f"{format_card_title(card)}\n\n{format_card_text(card)}"
 
+    # 1) картинка + подпись (или просто подпись, если картинки нет)
     if os.path.exists(img_path):
-
-        await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
-        await asyncio.sleep(0.2)
-
-        await message.answer_photo(
-            photo=FSInputFile(img_path),
-            caption=caption
-        )
-
-    else:
-        await message.answer(caption)
-
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await asyncio.sleep(0.4)
-
-async def send_card(message: Message, card: dict):
-
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await asyncio.sleep(0.4)
-
-    img_path = card_image_path(card["id"])
-
-    caption = f"🌿 *{card['title']}*\n\n{card['text']}"
-
-    # 1️⃣ картинка + подпись
-    if os.path.exists(img_path):
-
         await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
         await asyncio.sleep(0.3)
-
         await message.answer_photo(
             photo=FSInputFile(img_path),
             caption=caption
         )
-
     else:
         await message.answer(caption)
 
-    # 2️⃣ пауза
+    # 2) небольшая пауза + маркер
     await asyncio.sleep(0.5)
     await message.answer("🌿")
 
-    # 3️⃣ фраза + вопрос
+    # 3) фраза + вопрос (в одном сообщении)
     await asyncio.sleep(0.4)
     await message.answer(
-        f"Просто отметь первое, что откликнулось.\n\n"
-        f"🔎 *Вопрос:*\n\n{card['question']}",
+        format_card_question(card),
         reply_markup=main_menu_kb()
     )
 
