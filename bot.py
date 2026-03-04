@@ -474,10 +474,7 @@ async def send_card(message: Message, card: dict):
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     await asyncio.sleep(0.4)
 
-    await message.answer(
-        format_card_question(card),
-        reply_markup=main_menu_kb()
-    )
+
 
 
 # =========================
