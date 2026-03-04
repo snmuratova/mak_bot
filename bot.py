@@ -474,7 +474,40 @@ async def send_card(message: Message, card: dict):
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     await asyncio.sleep(0.4)
 
+async def send_card(message: Message, card: dict):
 
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await asyncio.sleep(0.4)
+
+    img_path = card_image_path(card["id"])
+
+    caption = f"🌿 *{card['title']}*\n\n{card['text']}"
+
+    # 1️⃣ картинка + подпись
+    if os.path.exists(img_path):
+
+        await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
+        await asyncio.sleep(0.3)
+
+        await message.answer_photo(
+            photo=FSInputFile(img_path),
+            caption=caption
+        )
+
+    else:
+        await message.answer(caption)
+
+    # 2️⃣ пауза
+    await asyncio.sleep(0.5)
+    await message.answer("🍃")
+
+    # 3️⃣ фраза + вопрос
+    await asyncio.sleep(0.4)
+    await message.answer(
+        f"Просто отметь первое, что откликнулось.\n\n"
+        f"🔎 *Вопрос:*\n\n{card['question']}",
+        reply_markup=main_menu_kb()
+    )
 
 
 # =========================
