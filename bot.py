@@ -499,7 +499,7 @@ async def send_card(message: Message, card: dict):
 
     # 2️⃣ пауза
     await asyncio.sleep(0.5)
-    await message.answer("🍃")
+    await message.answer("🌿")
 
     # 3️⃣ фраза + вопрос
     await asyncio.sleep(0.4)
