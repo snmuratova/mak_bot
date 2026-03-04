@@ -427,7 +427,7 @@ WEEKSTATE_TEXT = {
 # CARD FORMAT
 # =========================
 
-IMPORTANT_BEFORE_QUESTION = "Просто отметь первое, что откликнулось."
+IMPORTANT_BEFORE_QUESTION = "🫧 Просто отметь первое, что откликнулось."
 
 
 def format_card_title(card: dict) -> str:
@@ -440,49 +440,39 @@ def format_card_text(card: dict) -> str:
 
 def format_card_question(card: dict) -> str:
     return (
-        f"🫧 {IMPORTANT_BEFORE_QUESTION}\n\n"
+        f"{IMPORTANT_BEFORE_QUESTION}\n\n"
         f"🔎 *Вопрос:* {card['question']}"
     )
 
 
 def card_image_path(card_id: str) -> str:
-    # картинки лежат в папке images и называются как id карты
-    # пример: images/quiet_forest.jpg
     return os.path.join("images", f"{card_id}.jpg")
 
 
 async def send_card(message: Message, card: dict):
 
-    # 1. НАЗВАНИЕ
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     await asyncio.sleep(0.4)
 
-    await message.answer(format_card_title(card))
-
-    # 2. КАРТИНКА
     img_path = card_image_path(card["id"])
+
+    caption = f"{format_card_title(card)}\n\n{format_card_text(card)}"
 
     if os.path.exists(img_path):
 
         await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.2)
 
         await message.answer_photo(
-            photo=FSInputFile(img_path)
+            photo=FSInputFile(img_path),
+            caption=caption
         )
 
     else:
-        await message.answer("🖼 (Картинка пока недоступна)")
+        await message.answer(caption)
 
-    # 3. ТЕКСТ
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await asyncio.sleep(0.5)
-
-    await message.answer(format_card_text(card))
-
-    # 4. ВОПРОС
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.4)
 
     await message.answer(
         format_card_question(card),
