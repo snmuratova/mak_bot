@@ -423,10 +423,6 @@ WEEKSTATE_TEXT = {
 }
 
 
- карты
-    # пример: images/quiet_forest.jpg
-    return os.path.join("images", f"{card_id}.jpg")
-
 # =========================
 # CARD FORMAT
 # =========================
@@ -492,6 +488,8 @@ async def send_card(message: Message, card: dict):
         format_card_question(card),
         reply_markup=main_menu_kb()
     )
+
+
 # =========================
 # Card logic
 # =========================
