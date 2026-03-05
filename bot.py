@@ -478,7 +478,7 @@ async def send_card(message: Message, card: dict):
     await message.answer("🌿")
 
     # 3) фраза + вопрос (в одном сообщении)
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(2.5)
     await message.answer(
         format_card_question(card),
         reply_markup=main_menu_kb()
