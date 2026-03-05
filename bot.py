@@ -457,7 +457,7 @@ def card_image_path(card_id: str) -> str:
 async def send_card(message: Message, card: dict):
     # 0) имитация набора
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(1.0)
 
     img_path = card_image_path(card["id"])
     caption = f"{format_card_title(card)}\n\n{format_card_text(card)}"
@@ -474,7 +474,7 @@ async def send_card(message: Message, card: dict):
         await message.answer(caption)
 
     # 2) небольшая пауза + маркер
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(2.0)
     await message.answer("🌿")
 
     # 3) фраза + вопрос (в одном сообщении)
