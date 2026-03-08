@@ -528,7 +528,7 @@ async def send_card(message: Message, card: dict):
 
     # Пауза перед вопросом
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await asyncio.sleep(1.2)
+    await asyncio.sleep(2.0)
 
     preface = random.choice(PRE_QUESTION_TEXTS)
     await message.answer(
@@ -539,7 +539,7 @@ async def send_card(message: Message, card: dict):
 
 
 async def send_deeper_reflection(message: Message, card: dict):
-    await asyncio.sleep(1.2)
+    await asyncio.sleep(2.0)
 
     await message.answer(
         "🌿\n\n"
@@ -548,25 +548,21 @@ async def send_deeper_reflection(message: Message, card: dict):
     )
     
     # листик перед вопросом
-    await asyncio.sleep(1.4)
-    await message.answer("🌿")
-
-    await asyncio.sleep(1.5)
-    await message.answer(f"🫧 {random.choice(OBSERVATION_QUESTIONS)}")
-
-    await asyncio.sleep(1.6)
-    await message.answer(f"🍃 {random.choice(RESOURCE_QUESTIONS)}")
-
-    # листик перед практикой
     await asyncio.sleep(2.0)
     await message.answer("🌿")
 
-    await asyncio.sleep(1.2)
-    await message.answer(random.choice(PRACTICES))
+    await asyncio.sleep(2.5)
+    await message.answer(f"🫧 {random.choice(OBSERVATION_QUESTIONS)}")
 
-    # листик перед завершением
-    await asyncio.sleep(1.2)
+    await asyncio.sleep(2.6)
+    await message.answer(f"🍃 {random.choice(RESOURCE_QUESTIONS)}")
+
+    # листик перед практикой
+    await asyncio.sleep(2.5)
     await message.answer("🌿")
+
+    await asyncio.sleep(2.0)
+    await message.answer(random.choice(PRACTICES))
 
     await asyncio.sleep(1.0)
     await message.answer(
