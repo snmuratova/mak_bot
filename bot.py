@@ -539,30 +539,36 @@ async def send_card(message: Message, card: dict):
 
 
 async def send_deeper_reflection(message: Message, card: dict):
-    await asyncio.sleep(0.4)
-    await message.answer(
-        "🌿\n\n"
-        "Можно посмотреть на эту карту чуть глубже\n"
-        "и задать ей ещё несколько вопросов."
-    )
+await asyncio.sleep(1.2)
 
-    await asyncio.sleep(0.6)
-    await message.answer(f"🫧 {random.choice(OBSERVATION_QUESTIONS)}")
+await message.answer(
+    "🌿\n\n"
+    "Можно посмотреть на эту карту чуть глубже\n"
+    "и задать ей ещё несколько вопросов."
+)
 
-    await asyncio.sleep(0.8)
-    await message.answer(f"🍃 {random.choice(RESOURCE_QUESTIONS)}")
+await asyncio.sleep(1.5)
+await message.answer(f"🫧 {random.choice(OBSERVATION_QUESTIONS)}")
 
-    await asyncio.sleep(0.8)
-    await message.answer(f"🔎 {random.choice(LIFE_TRANSFER_QUESTIONS)}")
+await asyncio.sleep(1.6)
+await message.answer(f"🍃 {random.choice(RESOURCE_QUESTIONS)}")
 
-    await asyncio.sleep(0.8)
-    await message.answer(random.choice(PRACTICES))
+# листик перед практикой
+await asyncio.sleep(1.4)
+await message.answer("🌿")
 
-    await asyncio.sleep(0.8)
-    await message.answer(
-        FINAL_REFLECTION_TEXT,
-        reply_markup=main_menu_kb()
-    )
+await asyncio.sleep(1.2)
+await message.answer(random.choice(PRACTICES))
+
+# листик перед завершением
+await asyncio.sleep(1.2)
+await message.answer("🌿")
+
+await asyncio.sleep(1.0)
+await message.answer(
+    FINAL_REFLECTION_TEXT,
+    reply_markup=main_menu_kb()
+)
 
 
 # =========================
