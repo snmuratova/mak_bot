@@ -13,6 +13,9 @@ from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatAction
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+
 
 # =========================
 # ADMIN (видит статистику)
@@ -35,14 +38,13 @@ if _raw_admins:
         if part.isdigit():
             ADMIN_IDS.add(int(part))
 
-# timezone for “soft reminders”
-# Default: GMT+3 (as you have)
+# timezone for reminders
 TZ_OFFSET_HOURS = int(os.getenv("TZ_OFFSET_HOURS", "3"))
 TZ = timezone(timedelta(hours=TZ_OFFSET_HOURS))
 
 # Reminder time (local TZ)
-REMINDER_HOUR = int(os.getenv("REMINDER_HOUR", "10"))   # 10:00
-REMINDER_MIN  = int(os.getenv("REMINDER_MIN", "0"))
+REMINDER_HOUR = int(os.getenv("REMINDER_HOUR", "10"))
+REMINDER_MIN = int(os.getenv("REMINDER_MIN", "0"))
 
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
@@ -54,14 +56,14 @@ CARDS = [
     {
         "id": "quiet_forest",
         "title": "Тихий лес",
-        "text": "Иногда самый верный шаг — замедлиться и услышать, что ты давно игнорируешь.",
-        "question": "Где в твоей жизни больше всего нужна тишина?",
+        "text": "Иногда самый верный шаг — замедлиться и услышать то, что долго оставалось незамеченным.",
+        "question": "Где в твоей жизни сейчас больше всего нужна тишина?",
     },
     {
         "id": "warm_light",
         "title": "Тёплый свет",
         "text": "Даже маленький свет — это знак: тебе есть куда вернуться.",
-        "question": "Где твоя «точка света» сегодня?",
+        "question": "Где твоя точка света сегодня?",
     },
     {
         "id": "pocket_key",
@@ -79,19 +81,19 @@ CARDS = [
         "id": "tea_pause",
         "title": "Чашка чая",
         "text": "Иногда забота — не подвиг. Это простая пауза, которая возвращает тебя к себе.",
-        "question": "Что ты можешь сделать для себя сегодня?",
+        "question": "Что ты можешь сделать для себя за 2 минуты — без чувства вины?",
     },
     {
         "id": "soft_fog",
         "title": "Лёгкий туман",
-        "text": "Когда всё размыто — это не ошибка и не провал. Это расфокус: пространство, где появляется новый ориентир.",
-        "question": "Что сегодня может быть твоим ориентиром?",
+        "text": "Когда всё размыто — это не ошибка и не провал. Это пространство, где появляется новый ориентир.",
+        "question": "Какая одна вещь сегодня может быть твоим ориентиром?",
     },
     {
         "id": "soft_blanket",
         "title": "Мягкий плед",
-        "text": "Тепло — это покой и личное пространсво. Ты можешь укрыть себя, не объясняясь и не оправдываясь.",
-        "question": "Где тебе нужна граница,что бы сохранить внутренее ровновесие?",
+        "text": "Тепло — это покой и личное пространство. Ты можешь укрыть себя, не объясняя и не оправдываясь.",
+        "question": "Где тебе сейчас нужна граница, чтобы сохранить внутреннее равновесие?",
     },
     {
         "id": "lantern",
@@ -102,8 +104,8 @@ CARDS = [
     {
         "id": "quiet_garden",
         "title": "Сад",
-        "text": "Рост бывает тихим. Ты уже делаешь больше, чем замечаешь.",
-        "question": "Что в тебе начинает меняться, даже если пока незаметно?",
+        "text": "Рост бывает тихим. Ты уже делаешь больше, чем иногда замечаешь.",
+        "question": "Что в тебе уже изменилось — даже если это пока почти незаметно?",
     },
     {
         "id": "letter_self",
@@ -113,6 +115,71 @@ CARDS = [
     },
 ]
 CARD_BY_ID = {c["id"]: c for c in CARDS}
+
+
+# =========================
+# DEEPER QUESTIONS
+# =========================
+PRE_QUESTION_TEXTS = [
+    "🫧 Обрати внимание на то, что в этой карте откликается тебе больше всего.",
+    "🫧 Позволь себе заметить первое, что откликнулось в этой карте.",
+    "🫧 Посмотри на карту и отметь то, что привлекает твоё внимание.",
+    "🫧 Заметь, что в этой карте откликается тебе сильнее всего.",
+]
+
+OBSERVATION_QUESTIONS = [
+    "Что на этой карте притягивает твоё внимание?",
+    "Какая деталь на карте кажется самой важной?",
+    "Что в этом образе первым привлекло твоё внимание?",
+    "Какая часть изображения откликается тебе сильнее всего?",
+    "Есть ли на карте место, где тебе хотелось бы оказаться?",
+    "Что на этой карте кажется самым спокойным?",
+    "Какая деталь на карте вызывает у тебя эмоциональный отклик?",
+    "Что в этом образе кажется самым близким для тебя?",
+    "Какой посыл этой карты кажется тебе самым значимым?",
+    "Есть ли на карте что-то, что напоминает о твоей жизни?",
+]
+
+RESOURCE_QUESTIONS = [
+    "Что на этой карте может быть для тебя ресурсом?",
+    "Что на карте кажется поддерживающим?",
+    "Что в этом образе можно взять с собой в сегодняшний день?",
+    "Где на карте есть ощущение спокойствия?",
+    "Какая часть этого образа может дать тебе опору?",
+    "Что в этой карте напоминает о твоей силе?",
+    "Есть ли на карте что-то, что помогает тебе выдохнуть?",
+    "Какая деталь в этом образе кажется тебе самой близкой?",
+    "Что на этой карте может поддержать тебя сегодня?",
+    "Где в этом образе ощущается устойчивость?",
+]
+
+LIFE_TRANSFER_QUESTIONS = [
+    "Что эта карта может подсказать тебе про сегодняшний день?",
+    "Как этот образ может быть связан с твоим запросом?",
+    "Есть ли в твоей жизни что-то похожее на этот образ?",
+    "О чём эта карта напоминает тебе сегодня?",
+    "Какое небольшое действие может появиться после этой карты?",
+    "Что в твоей жизни сейчас откликается этому образу?",
+    "Если бы эта карта могла дать тебе совет — каким бы он был?",
+    "Что ты возьмёшь с собой из этого образа?",
+    "На что этот образ помогает тебе посмотреть по-новому?",
+    "Как эта карта может поддержать тебя сегодня?",
+]
+
+PRACTICES = [
+    "🌿 *Небольшая практика*\n\nСделай медленный вдох.\nЕщё раз посмотри на карту и заметь деталь, которая кажется самой спокойной.\nПобудь с этим ощущением несколько секунд.",
+    "🌿 *Небольшая практика*\n\nПредставь, что ты находишься внутри этого образа.\nГде на карте тебе было бы спокойнее всего?\nПобудь там мысленно несколько секунд.",
+    "🌿 *Небольшая практика*\n\nПосмотри на карту ещё раз.\nНайди на ней то, что кажется поддерживающим.\nПредставь, что это ощущение можно взять с собой в сегодняшний день.",
+    "🌿 *Небольшая практика*\n\nПосмотри на карту и задай себе вопрос:\n*Какой маленький шаг сегодня может поддержать меня?*\nЗаметь первую мысль, которая приходит.",
+    "🌿 *Небольшая практика*\n\nСделай медленный вдох и выдох.\nПосмотри на карту ещё раз.\nЗаметь, какое чувство появляется внутри.",
+]
+
+FINAL_REFLECTION_TEXT = (
+    "🌿\n\n"
+    "То, что откликается, часто и есть нужное направление.\n\n"
+    "Можно вернуться к этой карте позже\n"
+    "или посмотреть, что откроется дальше."
+)
 
 
 # =========================
@@ -176,7 +243,7 @@ def today_key_local() -> str:
 def week_key_local(d: date | None = None) -> str:
     d = d or datetime.now(TZ).date()
     monday = d - timedelta(days=d.weekday())
-    return monday.isoformat()  # week key = Monday date
+    return monday.isoformat()
 
 
 def ensure_user(user_id: int):
@@ -193,7 +260,6 @@ def ensure_user(user_id: int):
             VALUES (?, ?, ?, 1, 0, 0)
         """, (user_id, ts, ts))
     else:
-        # visit/return logic: if last_seen more than 24h ago => count return
         last_seen = int(row["last_seen"])
         is_return = (ts - last_seen) >= 24 * 3600
         if is_return:
@@ -273,15 +339,6 @@ def toggle_subscribe(user_id: int) -> bool:
     return new_val == 1
 
 
-def is_subscribed(user_id: int) -> bool:
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute("SELECT subscribed FROM users WHERE user_id=?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return bool(row and int(row["subscribed"]) == 1)
-
-
 def mark_daily_sent(user_id: int, day_key: str):
     conn = db_connect()
     cur = conn.cursor()
@@ -331,24 +388,20 @@ def admin_stats_text():
     conn = db_connect()
     cur = conn.cursor()
 
-    # total users
     cur.execute("SELECT COUNT(*) as n FROM users")
     total_users = int(cur.fetchone()["n"])
 
-    # last 7 days new users
     since = now_ts() - 7 * 24 * 3600
     cur.execute("SELECT COUNT(*) as n FROM users WHERE first_seen>=?", (since,))
     new_7 = int(cur.fetchone()["n"])
 
-    # visits / returns sums
     cur.execute("SELECT COALESCE(SUM(visits),0) as v, COALESCE(SUM(returns),0) as r FROM users")
     sums = cur.fetchone()
     total_visits = int(sums["v"])
     total_returns = int(sums["r"])
 
-    # subscriptions
     cur.execute("SELECT COUNT(*) as n FROM users WHERE subscribed=1")
-    subs = int(cur.fetchone()["n"])
+    reminders_enabled = int(cur.fetchone()["n"])
 
     conn.close()
 
@@ -358,7 +411,7 @@ def admin_stats_text():
         f"🆕 Новых за 7 дней: *{new_7}*\n"
         f"👣 Посещений (суммарно): *{total_visits}*\n"
         f"🔁 Возвратов (24ч+): *{total_returns}*\n"
-        f"🔔 Напоминание включено: *{subs}*\n"
+        f"🔔 Напоминание включено: *{reminders_enabled}*\n"
     )
 
 
@@ -368,13 +421,18 @@ def admin_stats_text():
 def main_menu_kb():
     kb = ReplyKeyboardBuilder()
     kb.button(text="🌿 Карта дня")
-    kb.button(text="🌿 Выбрать карту")
+    kb.button(text="🎴 Выбрать карту")
+    kb.button(text="🫧 Мой вопрос")
     kb.button(text="⭐ В избранное")
     kb.button(text="📌 Мои избранные")
     kb.button(text="📅 Состояние недели")
     kb.button(text="🔔 Напоминание о карте")
-    kb.adjust(2, 2, 2)
-    return kb.as_markup(resize_keyboard=True, one_time_keyboard=False, input_field_placeholder="Выбери действие…")
+    kb.adjust(2, 2, 2, 1)
+    return kb.as_markup(
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Выбери действие…"
+    )
 
 
 def weekly_state_kb():
@@ -389,21 +447,30 @@ def weekly_state_kb():
     return kb.as_markup()
 
 
+def card_actions_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔍 Посмотреть глубже", callback_data="card:deeper")
+    kb.button(text="⭐ Сохранить карту", callback_data="card:save")
+    kb.button(text="🎴 Новая карта", callback_data="card:new")
+    kb.adjust(1, 2)
+    return kb.as_markup()
+
+
 WEEKSTATE_TEXT = {
     "clear": (
         "🌿 *Ясность*\n"
-        "Как будто сегодня можно вдохнуть свободнее. Не ускоряйся — просто иди ровно. Наслаждайся\n\n"
+        "Как будто сегодня можно вдохнуть свободнее. Не ускоряйся — просто иди ровно.\n\n"
         "Вопрос: *что ты хочешь сохранить в этом состоянии?*"
     ),
     "fog": (
         "🌫 *Туманность*\n"
-        "Когда всё размыто — это не откат назад, не потеря опоры. Это знак: тебе нужен ориентир, а не скорость.\n\n"
-        "Вопрос: *что будет твоим ориентиром сегодня?*"
+        "Когда всё размыто — это не откат назад и не потеря опоры. Это знак: тебе нужен ориентир, а не скорость.\n\n"
+        "Вопрос: *что будет твоим самым простым ориентиром на эту неделю?*"
     ),
     "overload": (
         "🌊 *Перегруз*\n"
         "Твоё «слишком много» — не слабость. Это честная информация.\n\n"
-        "Вопрос: *что-то можно немного уменьшить уже сегодня?*"
+        "Вопрос: *что-то можно уменьшить на 10% уже сегодня?*"
     ),
     "fragile": (
         "🫧 *Хрупкость*\n"
@@ -412,7 +479,7 @@ WEEKSTATE_TEXT = {
     ),
     "tension": (
         "🔥 *Напряжение*\n"
-        "Тело,как зеркало,отражает то, что ум пытается контролировать.\n\n"
+        "Тело, как зеркало, отражает то, что ум пытается контролировать.\n\n"
         "Вопрос: *где ты можешь чуть ослабить хватку?*"
     ),
     "warm": (
@@ -424,45 +491,27 @@ WEEKSTATE_TEXT = {
 
 
 # =========================
-# CARD FORMAT
+# FSM
 # =========================
-
-from aiogram.enums import ChatAction
-from aiogram.types import FSInputFile
-
-IMPORTANT_BEFORE_QUESTION = "🫧 Обрати внимание, что в этой карте откликается тебе больше всего."
+class AskCardState(StatesGroup):
+    waiting_for_question = State()
 
 
-def format_card_title(card: dict) -> str:
-    return f"🌿 *{card['title']}*"
-
-
-def format_card_text(card: dict) -> str:
-    return f"{card['text']}"
-
-
-def format_card_question(card: dict) -> str:
-    return (
-        f"{IMPORTANT_BEFORE_QUESTION}\n\n"
-        f"🔎 *Вопрос:*\n\n{card['question']}"
-    )
-
-
+# =========================
+# CARD FORMAT / SEND
+# =========================
 def card_image_path(card_id: str) -> str:
-    # картинки лежат в папке images и называются как id карты
-    # пример: images/quiet_forest.jpg
     return os.path.join("images", f"{card_id}.jpg")
 
 
 async def send_card(message: Message, card: dict):
-    # 0) имитация набора
+    # Небольшая пауза перед появлением карты
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     await asyncio.sleep(1.0)
 
     img_path = card_image_path(card["id"])
-    caption = f"{format_card_title(card)}\n\n{format_card_text(card)}"
+    caption = f"🌿 *{card['title']}*\n\n{card['text']}"
 
-    # 1) картинка + подпись (или просто подпись, если картинки нет)
     if os.path.exists(img_path):
         await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
         await asyncio.sleep(0.3)
@@ -473,14 +522,45 @@ async def send_card(message: Message, card: dict):
     else:
         await message.answer(caption)
 
-    # 2) небольшая пауза + маркер
-    await asyncio.sleep(2.0)
+    # Время посмотреть карту
+    await asyncio.sleep(2.5)
     await message.answer("🌿")
 
-    # 3) фраза + вопрос (в одном сообщении)
-    await asyncio.sleep(2.5)
+    # Пауза перед вопросом
+    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    await asyncio.sleep(1.2)
+
+    preface = random.choice(PRE_QUESTION_TEXTS)
     await message.answer(
-        format_card_question(card),
+        f"{preface}\n\n"
+        f"🔎 *Вопрос:*\n\n{card['question']}",
+        reply_markup=card_actions_kb()
+    )
+
+
+async def send_deeper_reflection(message: Message, card: dict):
+    await asyncio.sleep(0.4)
+    await message.answer(
+        "🌿\n\n"
+        "Можно посмотреть на эту карту чуть глубже\n"
+        "и задать ей ещё несколько вопросов."
+    )
+
+    await asyncio.sleep(0.6)
+    await message.answer(f"🫧 {random.choice(OBSERVATION_QUESTIONS)}")
+
+    await asyncio.sleep(0.8)
+    await message.answer(f"🍃 {random.choice(RESOURCE_QUESTIONS)}")
+
+    await asyncio.sleep(0.8)
+    await message.answer(f"🔎 {random.choice(LIFE_TRANSFER_QUESTIONS)}")
+
+    await asyncio.sleep(0.8)
+    await message.answer(random.choice(PRACTICES))
+
+    await asyncio.sleep(0.8)
+    await message.answer(
+        FINAL_REFLECTION_TEXT,
         reply_markup=main_menu_kb()
     )
 
@@ -490,7 +570,6 @@ async def send_card(message: Message, card: dict):
 # =========================
 def card_of_day(local_day: date | None = None) -> dict:
     local_day = local_day or datetime.now(TZ).date()
-    # deterministic index from date
     seed = int(local_day.strftime("%Y%m%d"))
     idx = seed % len(CARDS)
     return CARDS[idx]
@@ -506,8 +585,10 @@ def random_card() -> dict:
 async def handle_root(request):
     return web.Response(text="OK")
 
+
 async def handle_health(request):
     return web.Response(text="OK")
+
 
 async def start_web_server():
     app = web.Application()
@@ -536,13 +617,13 @@ async def cmd_start(message: Message):
         "🌿 Добро пожаловать.\n\n"
         "Это небольшое пространство паузы.\n"
         "Здесь можно остановиться на мгновение, заметить своё состояние и получить небольшой ориентир для размышления.\n\n"
-        "Метафорическая карта — это образ и вопрос, которые помогают в понимании своего состояния.\n\n"
+        "Метафорическая карта — это образ и вопрос, которые помогают мягко исследовать своё состояние.\n\n"
         "Иногда картинка или фраза открывают новую мысль, иногда просто помогают сделать паузу и услышать себя.\n\n"
         "Одна карта может стать маленькой точкой опоры на день.\n\n"
         "Здесь нет правильных или неправильных ответов.\n"
         "Есть только то, что откликается именно тебе.\n\n"
-        "Нажми «🌿 Карта дня».\n"
-        "или «🌿 Выбрать карту» и посмотри, какой ресурс откроется для тебя сегодня.",
+        "Нажми «🌿 Карта дня» или «🎴 Выбрать карту»\n"
+        "и посмотри, какой ресурс может открыться для тебя сегодня.",
         reply_markup=main_menu_kb()
     )
 
@@ -564,25 +645,82 @@ async def on_card_day(message: Message):
     await send_card(message, card)
 
 
-@dp.message(F.text == "🌿 Выбрать карту")
+@dp.message(F.text == "🎴 Выбрать карту")
 async def on_pick_card(message: Message):
     ensure_user(message.from_user.id)
     card = random_card()
     set_last_card(message.from_user.id, card["id"])
     await send_card(message, card)
 
+
+@dp.message(F.text == "🫧 Мой вопрос")
+async def on_my_question(message: Message, state: FSMContext):
+    ensure_user(message.from_user.id)
+    await state.set_state(AskCardState.waiting_for_question)
+
+    await message.answer(
+        "🌿 Иногда полезно прийти к карте со своим вопросом.\n\n"
+        "Напиши, о чём тебе хочется спросить сегодня.\n\n"
+        "Можно коротко, одним предложением."
+    )
+
+
+@dp.message(AskCardState.waiting_for_question, F.text)
+async def process_my_question(message: Message, state: FSMContext):
+    ensure_user(message.from_user.id)
+
+    user_question = message.text.strip()
+    await state.clear()
+
+    card = random_card()
+    set_last_card(message.from_user.id, card["id"])
+
+    await message.answer(
+        "🌿 Спасибо.\n"
+        "Сохрани этот вопрос в уме и посмотри, какой образ приходит в ответ."
+    )
+
+    await send_card(message, card)
+
+    await asyncio.sleep(0.7)
+    await message.answer(
+        f"🔎 *Связь с вопросом:*\n\n"
+        f"Как этот образ может быть связан с твоим вопросом:\n"
+        f"_{user_question}_",
+        reply_markup=main_menu_kb()
+    )
+
+
+@dp.message(
+    AskCardState.waiting_for_question,
+    F.text.in_({
+        "🌿 Карта дня",
+        "🎴 Выбрать карту",
+        "⭐ В избранное",
+        "📌 Мои избранные",
+        "📅 Состояние недели",
+        "🔔 Напоминание о карте",
+    })
+)
+async def cancel_my_question_mode(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "Ок, выходим из режима вопроса 🙂",
+        reply_markup=main_menu_kb()
+    )
+
+
 @dp.message(F.text == "⭐ В избранное")
 async def on_add_fav(message: Message):
     ensure_user(message.from_user.id)
     last = get_last_card(message.from_user.id)
     if not last:
-        await message.answer("Сначала выбери карту: нажми «🌿 Выбрать карту» или «🌿 Карта дня».")
+        await message.answer("Сначала выбери карту: нажми «🎴 Выбрать карту» или «🌿 Карта дня».")
         return
 
     try:
         add_favorite(message.from_user.id, last)
     except Exception:
-        # If user taps many times quickly, ignore duplicates with same timestamp collision chance
         pass
 
     title = CARD_BY_ID.get(last, {}).get("title", last)
@@ -652,8 +790,8 @@ async def on_subscribe_toggle(message: Message):
     if enabled:
         await message.answer(
             "🔔 Напоминание включено.\n\n"
-            "Я буду присылать напоминание раз в день — без давления.\n"
-            "Если захочешь выключить, нажми «🔔 Напомининие о карте» ещё раз.",
+            "Я буду присылать мягкое напоминание с картой дня.\n"
+            "Если захочешь выключить — нажми «🔔 Напоминание о карте» ещё раз.",
             reply_markup=main_menu_kb()
         )
     else:
@@ -665,13 +803,56 @@ async def on_subscribe_toggle(message: Message):
 
 
 # =========================
+# CALLBACKS UNDER CARD
+# =========================
+@dp.callback_query(F.data == "card:save")
+async def on_card_save(call: CallbackQuery):
+    ensure_user(call.from_user.id)
+    last = get_last_card(call.from_user.id)
+    if not last:
+        await call.answer("Сначала вытяни карту", show_alert=False)
+        return
+
+    try:
+        add_favorite(call.from_user.id, last)
+    except Exception:
+        pass
+
+    title = CARD_BY_ID.get(last, {}).get("title", last)
+    await call.message.answer(f"⭐ Карта «{title}» сохранена.", reply_markup=main_menu_kb())
+    await call.answer("Сохранено ✅", show_alert=False)
+
+
+@dp.callback_query(F.data == "card:new")
+async def on_card_new(call: CallbackQuery):
+    ensure_user(call.from_user.id)
+    card = random_card()
+    set_last_card(call.from_user.id, card["id"])
+    await call.answer()
+    await send_card(call.message, card)
+
+
+@dp.callback_query(F.data == "card:deeper")
+async def on_card_deeper(call: CallbackQuery):
+    ensure_user(call.from_user.id)
+    last = get_last_card(call.from_user.id)
+    if not last:
+        await call.answer("Сначала вытяни карту", show_alert=False)
+        return
+
+    card = CARD_BY_ID.get(last)
+    if not card:
+        await call.answer("Не нашла карту 🙈", show_alert=False)
+        return
+
+    await call.answer()
+    await send_deeper_reflection(call.message, card)
+
+
+# =========================
 # Soft reminders scheduler
 # =========================
 async def reminders_loop(bot: Bot):
-    """
-    Once a minute checks if it's time to send a daily gentle reminder.
-    Sends only to subscribed users, once per day.
-    """
     while True:
         try:
             now_local = datetime.now(TZ)
@@ -688,11 +869,11 @@ async def reminders_loop(bot: Bot):
                     if was_daily_sent(uid, day_key):
                         continue
 
-                    # gentle message + card of day suggestion
                     cd = card_of_day(now_local.date())
                     text = (
                         "🔔 *Мягкое напоминание*\n\n"
-                        "Сделай одну маленькую паузу. Не чтобы «успеть», а чтобы вернуться к себе.\n\n"
+                        "Сделай одну маленькую паузу.\n"
+                        "Не чтобы «успеть», а чтобы вернуться к себе.\n\n"
                         f"Сегодняшняя карта дня: *{cd['title']}*\n"
                         "Нажми «🌿 Карта дня», если хочешь её открыть."
                     )
@@ -700,14 +881,11 @@ async def reminders_loop(bot: Bot):
                         await bot.send_message(uid, text, reply_markup=main_menu_kb())
                         mark_daily_sent(uid, day_key)
                     except Exception:
-                        # user blocked bot or other send error — ignore
                         pass
 
-            # sleep 60s
             await asyncio.sleep(60)
 
         except Exception:
-            # if something goes wrong, don't kill the loop
             await asyncio.sleep(10)
 
 
@@ -722,13 +900,8 @@ async def main():
         default=DefaultBotProperties(parse_mode="Markdown")
     )
 
-    # Start HTTP server for health checks
     await start_web_server()
-
-    # Start reminders loop
     asyncio.create_task(reminders_loop(bot))
-
-    # Start polling
     await dp.start_polling(bot)
 
 
