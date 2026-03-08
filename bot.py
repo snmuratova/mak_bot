@@ -451,7 +451,7 @@ def card_actions_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="🔍 Посмотреть глубже", callback_data="card:deeper")
     kb.button(text="⭐ Сохранить карту", callback_data="card:save")
-    kb.button(text="🎴 Новая карта", callback_data="card:new")
+    kb.button(text="🌿 Новая карта", callback_data="card:new")
     kb.adjust(1, 2)
     return kb.as_markup()
 
