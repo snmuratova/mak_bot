@@ -546,6 +546,10 @@ async def send_deeper_reflection(message: Message, card: dict):
         "Можно посмотреть на эту карту чуть глубже\n"
         "и задать ей ещё несколько вопросов."
     )
+    
+    # листик перед вопросом
+    await asyncio.sleep(1.4)
+    await message.answer("🌿")
 
     await asyncio.sleep(1.5)
     await message.answer(f"🫧 {random.choice(OBSERVATION_QUESTIONS)}")
@@ -554,7 +558,7 @@ async def send_deeper_reflection(message: Message, card: dict):
     await message.answer(f"🍃 {random.choice(RESOURCE_QUESTIONS)}")
 
     # листик перед практикой
-    await asyncio.sleep(1.4)
+    await asyncio.sleep(2.0)
     await message.answer("🌿")
 
     await asyncio.sleep(1.2)
