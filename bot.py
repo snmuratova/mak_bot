@@ -645,20 +645,20 @@ async def on_week_state_pick(call: CallbackQuery):
     await call.answer("Сохранено ✅", show_alert=False)
 
 
-@dp.message(F.text == "🔔 Подписка")
+@dp.message(F.text == "🔔 Напоминание о карте")
 async def on_subscribe_toggle(message: Message):
     ensure_user(message.from_user.id)
     enabled = toggle_subscribe(message.from_user.id)
     if enabled:
         await message.answer(
-            "🔔 Подписка включена.\n\n"
+            "🔔 Напоминание включено.\n\n"
             "Я буду присылать напоминание раз в день — без давления.\n"
-            "Если захочешь выключить, нажми «🔔 Подписка» ещё раз.",
+            "Если захочешь выключить, нажми «🔔 Напомининие о карте» ещё раз.",
             reply_markup=main_menu_kb()
         )
     else:
         await message.answer(
-            "🔕 Подписка выключена.\n\n"
+            "🔕 Напоминание выключено.\n\n"
             "Я рядом, когда ты решишь вернуться.",
             reply_markup=main_menu_kb()
         )
