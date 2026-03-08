@@ -651,7 +651,7 @@ async def on_card_day(message: Message):
     await send_card(message, card)
 
 
-@dp.message(F.text == "🎴 Выбрать карту")
+@dp.message(F.text == "🌿 Выбрать карту")
 async def on_pick_card(message: Message):
     ensure_user(message.from_user.id)
     card = random_card()
@@ -701,7 +701,7 @@ async def process_my_question(message: Message, state: FSMContext):
     AskCardState.waiting_for_question,
     F.text.in_({
         "🌿 Карта дня",
-        "🎴 Выбрать карту",
+        "🌿 Выбрать карту",
         "⭐ В избранное",
         "📌 Мои избранные",
         "📅 Состояние недели",
@@ -721,7 +721,7 @@ async def on_add_fav(message: Message):
     ensure_user(message.from_user.id)
     last = get_last_card(message.from_user.id)
     if not last:
-        await message.answer("Сначала выбери карту: нажми «🎴 Выбрать карту» или «🌿 Карта дня».")
+        await message.answer("Сначала выбери карту: нажми «🌿 Выбрать карту» или «🌿 Карта дня».")
         return
 
     try:
