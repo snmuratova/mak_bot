@@ -421,7 +421,7 @@ def admin_stats_text():
 def main_menu_kb():
     kb = ReplyKeyboardBuilder()
     kb.button(text="🌿 Карта дня")
-    kb.button(text="🎴 Выбрать карту")
+    kb.button(text="🌿 Выбрать карту")
     kb.button(text="🫧 Мой вопрос")
     kb.button(text="⭐ В избранное")
     kb.button(text="📌 Мои избранные")
