@@ -851,9 +851,10 @@ async def on_card_save(call: CallbackQuery):
 @dp.callback_query(F.data == "card:new")
 async def on_card_new(call: CallbackQuery):
     ensure_user(call.from_user.id)
+    await call.answer()
+    
     card = random_card()
     set_last_card(call.from_user.id, card["id"])
-    await call.answer()
     await send_card(call.message, card)
 
 
