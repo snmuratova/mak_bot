@@ -608,19 +608,12 @@ async def start_web_server():
     site = web.TCPSite(runner, host="0.0.0.0", port=port)
     await site.start()
 
-
+ =========================
+# TEXTS
 # =========================
-# BOT
-# =========================
-dp = Dispatcher()
 
-
-@dp.message(CommandStart())
-async def cmd_start(message: Message):
-    ensure_user(message.from_user.id)
-
-    await message.answer(
-        "🌿 Добро пожаловать.\n\n"
+WELCOME_TEXT = (
+    "🌿 Добро пожаловать.\n\n"
         "Это пространство паузы и внутреннего диалога.\n"
         "Здесь можно на мгновение остановиться, заметить своё состояние и получить ориентир для размышления.\n\n"
         "Метафорическая карта — это образы и вопросы, которые помогают понять своё состояние,\n"
@@ -637,12 +630,28 @@ async def cmd_start(message: Message):
         "Михаил Аникин, @mishaguber.\n\n"
         "Визуальный стиль и дизайн карт\n"
         "Софья Аникина, @O11111111O1.\n\n"
-        "Нажми «🌿 Карта дня» или «🌿 Выбрать карту»\n"
+        "Нажми «🌿 Карта дня» или\n"
+        "«🌿 Выбрать карту»\n"
         "и посмотри, какой ресурс может открыться для тебя сегодня.",
         reply_markup=main_menu_kb()
     )
-    
+   
+# =========================
+# BOT
+# =========================
+dp = Dispatcher()
 
+
+@dp.message(CommandStart())
+async def cmd_start(message: Message):
+    ensure_user(message.from_user.id)
+
+    await message.answer(
+        WELCOME_TEXT,
+        reply_markup=main_menu_kb()
+    )
+    
+    
 @dp.message(Command("admin_stats"))
 async def cmd_admin_stats(message: Message):
     if message.from_user.id not in ADMIN_IDS:
