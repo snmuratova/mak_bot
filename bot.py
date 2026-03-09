@@ -852,7 +852,8 @@ async def on_card_save(call: CallbackQuery):
 async def on_card_new(call: CallbackQuery):
     ensure_user(call.from_user.id)
     await call.answer()
-    
+    await call.message.bot.send_chat_action(call.message.chat.id, "typing")
+    await asyncio.sleep(1.2)
     card = random_card()
     set_last_card(call.from_user.id, card["id"])
     await send_card(call.message, card)
