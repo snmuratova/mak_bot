@@ -427,7 +427,7 @@ def main_menu_kb():
     kb.button(text="📌 Мои избранные")
     kb.button(text="📅 Состояние недели")
     kb.button(text="🔔 Напоминание о карте")
-    builder.button(text="🌿 О боте")
+    kb.button(text="🌿 О боте")
     kb.adjust(2, 2, 2, 2)
     return kb.as_markup(
         resize_keyboard=True,
