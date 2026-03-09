@@ -508,14 +508,14 @@ def card_image_path(card_id: str) -> str:
 async def send_card(message: Message, card: dict):
     # Небольшая пауза перед появлением карты
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await asyncio.sleep(1.0)
+    await asyncio.sleep(1.2)
 
     img_path = card_image_path(card["id"])
     caption = f"🌿 *{card['title']}*\n\n{card['text']}"
 
     if os.path.exists(img_path):
         await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.4)
         await message.answer_photo(
             photo=FSInputFile(img_path),
             caption=caption
@@ -549,17 +549,17 @@ async def send_deeper_reflection(message: Message, card: dict):
     )
     
     # листик перед вопросом
-    await asyncio.sleep(2.0)
+    await asyncio.sleep(1.2)
     await message.answer("🌿")
 
-    await asyncio.sleep(2.5)
+    await asyncio.sleep(1.5)
     await message.answer(f"🫧 {random.choice(OBSERVATION_QUESTIONS)}")
 
-    await asyncio.sleep(2.6)
+    await asyncio.sleep(1.6)
     await message.answer(f"🍃 {random.choice(RESOURCE_QUESTIONS)}")
 
     # листик перед практикой
-    await asyncio.sleep(2.5)
+    await asyncio.sleep(1.5)
     await message.answer("🌿")
 
     await asyncio.sleep(2.0)
