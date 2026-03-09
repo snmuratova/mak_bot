@@ -565,7 +565,7 @@ async def send_deeper_reflection(message: Message, card: dict):
     await asyncio.sleep(2.0)
     await message.answer(random.choice(PRACTICES))
 
-    await asyncio.sleep(1.0)
+    await asyncio.sleep(2.2)
     await message.answer(
     FINAL_REFLECTION_TEXT,
     reply_markup=main_menu_kb()
