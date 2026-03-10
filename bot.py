@@ -678,7 +678,7 @@ async def on_card_day(message: Message):
     await asyncio.sleep(1.5)
 
     await message.answer(
-        "Открой карту, когда будешь готова/готов."
+        "Образ дня."
     )
 
     await asyncio.sleep(1.2)
