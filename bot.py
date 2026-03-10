@@ -693,6 +693,23 @@ async def cmd_admin_stats(message: Message):
 async def on_card_day(message: Message):
     ensure_user(message.from_user.id)
 
+    today = today_key_local()
+    already_opened = get_daily_card_date(message.from_user.id)
+
+    # если карта дня уже открыта
+    if already_opened == today:
+
+        await message.answer(
+            "🌿 Сегодняшняя карта уже с тобой.\n\n"
+            "Можно вернуться к ней ещё раз."
+        )
+
+        card = card_of_day()
+        set_last_card(message.from_user.id, card["id"])
+        await send_card(message, card)
+        return
+
+    # первый раз за день
     await message.answer(
         "Сделай небольшой вдох.\n"
         "Можно на секунду остановиться."
@@ -707,7 +724,10 @@ async def on_card_day(message: Message):
     await asyncio.sleep(1.2)
 
     card = card_of_day()
+
     set_last_card(message.from_user.id, card["id"])
+    set_daily_card_date(message.from_user.id, today)
+
     await send_card(message, card)
 
 
