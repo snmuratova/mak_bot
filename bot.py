@@ -825,6 +825,14 @@ async def on_subscribe_toggle(message: Message):
             "Я рядом, когда ты решишь вернуться.",
             reply_markup=main_menu_kb()
         )
+@dp.message(F.text == "🌿 О боте")
+async def about_bot(message: Message):
+    await asyncio.sleep(0.8)
+
+    await message.answer(
+        WELCOME_TEXT,
+        reply_markup=main_menu_kb()
+    )
 
 
 # =========================
