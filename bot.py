@@ -450,7 +450,7 @@ def weekly_state_kb():
 
 def card_actions_kb():
     kb = InlineKeyboardBuilder()
-    kb.button(text="🔍 Разобрать эту карту", callback_data="card:deeper")
+    kb.button(text="🔍 Разобрать состояние", callback_data="card:deeper")
     kb.button(text="⭐ Сохранить", callback_data="card:save")
     kb.button(text="🌿 Новая карта", callback_data="card:new")
     kb.adjust(1, 2)
