@@ -669,6 +669,10 @@ async def cmd_admin_stats(message: Message):
 @dp.message(F.text == "🌿 Карта дня")
 async def on_card_day(message: Message):
     ensure_user(message.from_user.id)
+
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    await asyncio.sleep(1.2)
+
     card = card_of_day()
     set_last_card(message.from_user.id, card["id"])
     await send_card(message, card)
@@ -677,6 +681,10 @@ async def on_card_day(message: Message):
 @dp.message(F.text == "🌿 Выбрать карту")
 async def on_pick_card(message: Message):
     ensure_user(message.from_user.id)
+
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    await asyncio.sleep(1.2)
+
     card = random_card()
     set_last_card(message.from_user.id, card["id"])
     await send_card(message, card)
