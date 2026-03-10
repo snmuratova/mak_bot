@@ -670,7 +670,17 @@ async def cmd_admin_stats(message: Message):
 async def on_card_day(message: Message):
     ensure_user(message.from_user.id)
 
-    await message.bot.send_chat_action(message.chat.id, "typing")
+    await message.answer(
+        "Сделай небольшой вдох.\n"
+        "Можно на секунду остановиться."
+    )
+
+    await asyncio.sleep(1.5)
+
+    await message.answer(
+        "Открой карту, когда будешь готова/готов."
+    )
+
     await asyncio.sleep(1.2)
 
     card = card_of_day()
