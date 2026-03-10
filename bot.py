@@ -210,9 +210,9 @@ def db_init():
     )
     """)
     try:
-    cur.execute("ALTER TABLE users ADD COLUMN daily_card_date TEXT")
+        cur.execute("ALTER TABLE users ADD COLUMN daily_card_date TEXT")
     except sqlite3.OperationalError:
-    pass
+        pass
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS favorites (
