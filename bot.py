@@ -301,6 +301,24 @@ def get_last_card(user_id: int) -> str | None:
     if not row:
         return None
     return row["last_card_id"]
+    
+def get_daily_card_date(user_id: int) -> str | None:
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT daily_card_date FROM users WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return row["daily_card_date"]
+
+
+def set_daily_card_date(user_id: int, day_key: str):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET daily_card_date=? WHERE user_id=?", (day_key, user_id))
+    conn.commit()
+    conn.close()
 
 
 def add_favorite(user_id: int, card_id: str):
