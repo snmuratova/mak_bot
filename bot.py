@@ -205,9 +205,14 @@ def db_init():
         subscribed INTEGER NOT NULL DEFAULT 0,
         last_daily_sent TEXT,
         last_weekly_state_week TEXT,
-        last_card_id TEXT
+        last_card_id TEXT,
+        daily_card_date TEXT
     )
     """)
+    try:
+    cur.execute("ALTER TABLE users ADD COLUMN daily_card_date TEXT")
+    except sqlite3.OperationalError:
+    pass
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS favorites (
