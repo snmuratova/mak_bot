@@ -896,6 +896,7 @@ async def about_bot(message: Message):
 
     await message.answer(
         WELCOME_TEXT,
+        parse_mode=None,
         reply_markup=main_menu_kb()
     )
 
