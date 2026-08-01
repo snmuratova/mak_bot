@@ -651,7 +651,7 @@ WELCOME_TEXT = (
     "Этот бот — результат творческой работы команды.\n\n"
     "Психологическая концепция и тексты\n"
     "Светлана\n" 
-    "https://t.me/teplaya_psihologiya\n\n"
+    "@teplaya_psihologiya\n\n"
     "Программная разработка\n"
     "Михаил\n"
     "@mishaguber\n\n"
